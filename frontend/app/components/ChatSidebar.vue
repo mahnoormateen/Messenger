@@ -1,53 +1,65 @@
 <script setup lang="ts">
 import { computed, ref, watch, onBeforeUnmount } from "vue";
 import type { ChatUser } from "~/composables/useChat";
-// Explicit imports for the invite feature (new exports) — safe regardless of
-// whether the dev server's auto-import registry has re-scanned this file.
-import { invites, sentInvites, sendInvite, acceptInvite, dismissInvite } from "~/composables/useChat";
+import {
+  invites,
+  sentInvites,
+  sendInvite,
+  acceptInvite,
+  dismissInvite,
+  signOut // 1. Added sign-out composable method
+} from "~/composables/useChat";
 
 const USERNAME_RE = /^[a-z0-9][a-z0-9._-]{1,31}$/;
 
 const query = ref("");
 const searchInput = ref<HTMLInputElement | null>(null);
 let searchTimer: ReturnType<typeof setTimeout> | undefined;
-/** True while a debounced server-side search is still in flight. */
+
 const searching = ref(false);
-/** Query the last fired search was requested for (used to drop stale results). */
 const lastRequestedQuery = ref("");
 
-/** Whether the "edit my profile" modal is open. */
 const profileOpen = ref(false);
+
+/** State for Sign Out confirmation modal */
+const showSignOutModal = ref(false);
+
+// 2. Updated confirmSignOut function to trigger the logout flow
+async function confirmSignOut() {
+  showSignOutModal.value = false;
+  try {
+    await signOut();
+  } catch (e) {
+    console.error("Failed to sign out:", e);
+  }
+}
+
+function cancelSignOut() {
+  showSignOutModal.value = false;
+}
 
 const connected = computed(() => connectionStatus.value === "connected");
 const hasQuery = computed(() => query.value.trim().length > 0);
-/** The search text stripped of a leading "@", lowercased. */
 const searchTerm = computed(() => query.value.trim().replace(/^@+/, "").toLowerCase());
 
-/** When the query has no signed-up matches, it's a candidate to invite (if it looks like a username). */
 const candidateUsername = computed(() => {
   const t = searchTerm.value;
   if (!hasQuery.value || searching.value) return null;
-  if (searchResults.value.length > 0) return null; // existing signed-up users matched — no invite
-  if (me.value?.username && me.value.username.toLowerCase() === t) return null; // can't invite myself
+  if (searchResults.value.length > 0) return null;
+  if (me.value?.username && me.value.username.toLowerCase() === t) return null;
   return t;
 });
+
 const usernameValid = computed(() => (candidateUsername.value ? USERNAME_RE.test(candidateUsername.value) : false));
-/** Whether I already sent an invite for the current search candidate. */
 const inviteSent = computed(() => (candidateUsername.value ? sentInvites.has(candidateUsername.value) : false));
 
-// Invite box state
 const inviteMessage = ref("");
 const sendingInvite = ref(false);
 const inviteError = ref("");
+
 watch(candidateUsername, () => (inviteError.value = ""));
-/** A fresh search result reply means the in-flight search has finished. */
 watch(searchResults, () => {
   searching.value = false;
-  // If the query moved on while the search was in flight, drop the stale results
-  // so they can't clobber the view for the current query. Only clear when there
-  // actually IS something to clear: re-assigning an already-empty array (even []
-  // is a *new* reference every time) would re-trigger this watcher endlessly and
-  // Vue would abort with "Maximum recursive updates exceeded".
   if (searchResults.value.length > 0 && lastRequestedQuery.value && lastRequestedQuery.value !== query.value.trim()) {
     searchResults.value = [];
   }
@@ -68,18 +80,17 @@ async function sendInviteNow() {
   }
 }
 
-/** "Recently Added" — people you've already messaged, most recent first. */
 const recentlyAdded = computed(() => {
   const selfId = me.value?.id;
   return liveUsers.value
-    .filter((u) => u.id !== selfId && hasConversation(u.id))
-    .sort((a, b) => {
-      const la = getLastMessageFor(a.id)?.timestamp ?? 0;
-      const lb = getLastMessageFor(b.id)?.timestamp ?? 0;
-      if (la !== lb) return lb - la;
-      if (a.online !== b.online) return a.online ? -1 : 1;
-      return a.name.localeCompare(b.name);
-    });
+      .filter((u) => u.id !== selfId && hasConversation(u.id))
+      .sort((a, b) => {
+        const la = getLastMessageFor(a.id)?.timestamp ?? 0;
+        const lb = getLastMessageFor(b.id)?.timestamp ?? 0;
+        if (la !== lb) return lb - la;
+        if (a.online !== b.online) return a.online ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
 });
 
 const unreadCount = (id: string) => getUnreadFor(id);
@@ -99,7 +110,6 @@ function lastSeenLabel(u: ChatUser) {
   return "offline";
 }
 
-/** Debounced server-side search for signed-up users. */
 function onQueryInput() {
   clearTimeout(searchTimer);
   const q = query.value.trim();
@@ -129,10 +139,8 @@ function focusSearch() {
   requestAnimationFrame(() => searchInput.value?.focus());
 }
 
-// Don't fire the pending debounced search after the sidebar unmounts.
 onBeforeUnmount(() => clearTimeout(searchTimer));
 
-/** Open a chat (from Recently Added or a search result) and reset the query. */
 function select(id: string) {
   openChat(id);
   clearSearchInput();
@@ -160,7 +168,7 @@ function select(id: string) {
         <button class="icon-btn" title="Edit profile" @click="profileOpen = true">
           <UIcon name="i-lucide-user" size="22" />
         </button>
-        <button class="icon-btn" title="Sign out" @click="signOut">
+        <button class="icon-btn" title="Sign out" @click="showSignOutModal = true">
           <UIcon name="i-lucide-log-out" size="22" />
         </button>
       </div>
@@ -170,11 +178,11 @@ function select(id: string) {
     <div class="search-box">
       <UIcon name="i-lucide-search" size="18" class="search-icon" />
       <input
-        ref="searchInput"
-        v-model="query"
-        type="search"
-        placeholder="Search signed-up people…"
-        @input="onQueryInput"
+          ref="searchInput"
+          v-model="query"
+          type="search"
+          placeholder="Search signed-up people…"
+          @input="onQueryInput"
       />
       <button v-if="hasQuery" class="clear-btn" title="Clear search" @click="clearSearchInput">✕</button>
     </div>
@@ -228,11 +236,11 @@ function select(id: string) {
             <strong>@{{ candidateUsername }} isn't signed up yet</strong>
             <small>Send an invite — it appears in their sidebar as soon as they join.</small>
             <input
-              v-model="inviteMessage"
-              class="invite-note"
-              type="text"
-              maxlength="140"
-              placeholder="Add a note (optional)"
+                v-model="inviteMessage"
+                class="invite-note"
+                type="text"
+                maxlength="140"
+                placeholder="Add a note (optional)"
             />
             <p v-if="inviteError" class="invite-error">⚠ {{ inviteError }}</p>
             <small v-if="!usernameValid" class="invite-hint">
@@ -251,11 +259,11 @@ function select(id: string) {
         </div>
 
         <button
-          v-for="u in searchResults"
-          :key="u.id"
-          class="contact"
-          :class="{ active: activeChatId === u.id }"
-          @click="select(u.id)"
+            v-for="u in searchResults"
+            :key="u.id"
+            class="contact"
+            :class="{ active: activeChatId === u.id }"
+            @click="select(u.id)"
         >
           <div class="avatar-wrap">
             <div class="avatar md" :style="avatarStyle(u)">
@@ -289,11 +297,11 @@ function select(id: string) {
         </div>
 
         <button
-          v-for="u in recentlyAdded"
-          :key="u.id"
-          class="contact"
-          :class="{ active: activeChatId === u.id }"
-          @click="openChat(u.id)"
+            v-for="u in recentlyAdded"
+            :key="u.id"
+            class="contact"
+            :class="{ active: activeChatId === u.id }"
+            @click="openChat(u.id)"
         >
           <div class="avatar-wrap">
             <div class="avatar md" :style="avatarStyle(u)">
@@ -327,6 +335,27 @@ function select(id: string) {
     </nav>
 
     <EditProfileModal v-if="profileOpen" @close="profileOpen = false" />
+
+    <!-- Sign Out Confirmation Modal -->
+    <Teleport to="body">
+      <Transition name="modal-fade">
+        <div v-if="showSignOutModal" class="modal-overlay" @click.self="cancelSignOut">
+          <div class="modal-card">
+            <div class="modal-header">
+              <div class="modal-icon warning">
+                <UIcon name="i-lucide-log-out" size="24" />
+              </div>
+              <h3>Sign Out</h3>
+            </div>
+            <p class="modal-body">Are you sure you want to sign out of your account?</p>
+            <div class="modal-actions">
+              <button class="modal-btn secondary" @click="cancelSignOut">Cancel</button>
+              <button class="modal-btn danger" @click="confirmSignOut">Sign Out</button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
   </aside>
 </template>
 
@@ -781,5 +810,121 @@ function select(id: string) {
 .invite-btn:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+/* ---- modal (sign out) ---- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.modal-card {
+  width: 100%;
+  max-width: 380px;
+  background: #fff;
+  border-radius: 18px;
+  padding: 24px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.18);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  transform: scale(1);
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.modal-icon.warning {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #fef2f2;
+  color: #ef4444;
+  flex-shrink: 0;
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.modal-body {
+  margin: 0;
+  font-size: 14.5px;
+  color: var(--ink-2, #555);
+  line-height: 1.5;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.modal-btn {
+  border: none;
+  border-radius: 10px;
+  padding: 10px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+
+.modal-btn:active {
+  transform: scale(0.97);
+}
+
+.modal-btn.secondary {
+  background: #f1f2f4;
+  color: var(--ink, #333);
+}
+
+.modal-btn.secondary:hover {
+  background: #e4e6e9;
+}
+
+.modal-btn.danger {
+  background: #ef4444;
+  color: #fff;
+}
+
+.modal-btn.danger:hover {
+  background: #dc2626;
+}
+
+/* Modal Vue Transitions */
+.modal-fade-enter-active,
+.modal-fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.modal-fade-enter-from,
+.modal-fade-leave-to {
+  opacity: 0;
+}
+
+.modal-fade-enter-active .modal-card {
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.modal-fade-enter-from .modal-card {
+  transform: scale(0.92);
 }
 </style>
