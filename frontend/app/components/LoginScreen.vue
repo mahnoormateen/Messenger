@@ -10,11 +10,6 @@ const name = ref("");
 const loading = ref(false);
 const error = ref("");
 
-const statusText = computed(() => {
-  const map = { connecting: "Connecting…", connected: "Server connected", disconnected: "Server offline" };
-  return map[connectionStatus.value];
-});
-const statusClass = computed(() => connectionStatus.value);
 
 // ---- live username uniqueness check (signup mode only) ----
 const CHECK_URL = "http://localhost:3001/api/check-username";
@@ -116,14 +111,10 @@ async function submit() {
     <div class="login-card">
       <div class="brand">
         <div class="brand-mark">💬</div>
-        <h1>Chatter</h1>
-        <p>Realtime private messaging over Socket.IO</p>
+        <h1>Messenger</h1>
+        <p>Realtime private messaging</p>
       </div>
 
-      <div class="conn-pill" :class="statusClass">
-        <span class="dot"></span>
-        {{ statusText }}
-      </div>
 
       <!-- Mode tabs -->
       <div class="tabs">
@@ -164,7 +155,6 @@ async function submit() {
           </template>
           <template v-else>
             Your session is remembered on this device, so next time you'll be signed in automatically.
-            <br />💡 Open two browser tabs and sign up with different usernames to try the private chat.
           </template>
         </p>
       </form>

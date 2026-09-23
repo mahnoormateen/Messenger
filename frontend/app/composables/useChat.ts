@@ -574,5 +574,6 @@ export function sendTyping(to: string, isTyping: boolean) {
 }
 
 export function signOut() {
+  if (!window.confirm("Are you sure you want to log out?")) return;
   void logoutUser();
 }

@@ -1,25 +1,8 @@
 <script setup lang="ts">
-const statusText = computed(() => {
-  const map = { connecting: "Connecting to server…", connected: "Connected to Socket.IO server", disconnected: "Disconnected" };
-  return map[connectionStatus.value];
-});
 </script>
 
 <template>
   <div class="welcome">
-    <div class="welcome-inner">
-      <div class="welcome-mark">
-        <UIcon name="i-lucide-message-circle" size="44" />
-      </div>
-      <h2>Chatter</h2>
-      <p>Pick a conversation from Recently Added, or search for a signed-up person to start chatting.</p>
-      <span class="conn" :class="connectionStatus">{{ statusText }}</span>
-      <div class="features">
-        <span>🔒 Private 1:1 rooms</span>
-        <span>✓ Read receipts</span>
-        <span>✍️ Typing indicators</span>
-      </div>
-    </div>
   </div>
 </template>
 

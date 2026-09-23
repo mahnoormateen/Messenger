@@ -28,9 +28,11 @@ const headMenuOpen = ref(false);
 const confirmDelete = ref(false);
 function doClearChat() {
   const id = activeChatId.value;
-  headMenuOpen.value = false;
-  confirmDelete.value = false;
-  if (id) clearChat(id); // closes the chat on success (activeChatId -> null)
+  if (id) {
+    clearChat(id); // closes the chat on success (activeChatId -> null)
+    confirmDelete.value = false;
+    headMenuOpen.value = false;
+  }
 }
 
 // ---- header status ----
@@ -543,13 +545,57 @@ function tickIcon(status: string) {
   background: #fef2f2;
 }
 
+/* Centered confirmation modal when deleting a chat */
 .head-menu-confirm {
-  margin-top: 4px;
-  padding: 10px 12px 6px;
-  border-top: 1px solid var(--line);
-  font-size: 12.5px;
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(10, 14, 18, 0.8);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.head-menu-confirm strong {
+  color: var(--ink);
+}
+.head-menu-confirm .text {
+  text-align: center;
+  max-width: 400px;
   color: var(--ink-2);
-  line-height: 1.45;
+  font-size: 14px;
+}
+.head-menu-confirm .text span {
+  color: var(--ink);
+}
+.head-menu-confirm-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 24px;
+  justify-content: center;
+}
+.head-menu-confirm-actions button {
+  border: none;
+  border-radius: 8px;
+  padding: 8px 24px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.head-menu-confirm-actions .ghost {
+  background: #f1f2f4;
+  color: var(--ink-2);
+}
+.head-menu-confirm-actions .ghost:hover {
+  background: #e5e8ea;
+}
+.head-menu-confirm-actions .danger {
+  background: #dc2626;
+  color: #fff;
+}
+.head-menu-confirm-actions .danger:hover {
+  background: #b91c1c;
 }
 
 .head-menu-confirm strong {
@@ -558,9 +604,9 @@ function tickIcon(status: string) {
 
 .head-menu-confirm-actions {
   display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 10px;
+  gap: 12px;
+  margin-top: 24px;
+  justify-content: center;
 }
 
 .head-menu-confirm-actions button {
@@ -595,7 +641,7 @@ function tickIcon(status: string) {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  overflow-x: hidden;
+  overflow-x: auto;
   padding: 14px 6% 10px;
   background-color: var(--bg-chat);
   background-image: radial-gradient(
