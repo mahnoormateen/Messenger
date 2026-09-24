@@ -2,15 +2,45 @@
 import { computed, nextTick, ref, watch } from "vue";
 
 // Nuxt auto-imports all composables exported from ~/composables directory automatically!
-// No need to import activeChatId, me, getUserById, etc.
 
 const emit = defineEmits<{ (e: "back"): void }>();
 
-const activeUser = computed(() => getUserById(activeChatId.value));
-const messages = computed(() => (activeChatId.value ? getMessagesFor(activeChatId.value) : []));
+// Message Data Model Interface to satisfy IDE template resolution
+interface ChatMessage {
+  id: string;
+  senderId: string;
+  text: string;
+  timestamp: number;
+  type?: "text" | "image";
+  status: "sent" | "delivered" | "read";
+  deletedForAll?: boolean;
+}
+
+const activeUser = computed(() => (activeChatId.value ? getUserById(activeChatId.value) : null));
+const messages = computed<ChatMessage[]>(() => (activeChatId.value ? getMessagesFor(activeChatId.value) : []));
 const isTypingNow = computed(() => (activeChatId.value ? getTypingFor(activeChatId.value) : false));
 
-// Helper formatting functions if they are defined locally or need fallback
+// ---- clear chat modal state & functions ----
+const pendingDeleteChatId = ref<string | null>(null);
+
+function requestClearChat(chatId: string) {
+  pendingDeleteChatId.value = chatId;
+}
+
+function cancelClearChat() {
+  pendingDeleteChatId.value = null;
+}
+
+function confirmClearChat() {
+  if (pendingDeleteChatId.value) {
+    if (typeof clearChat === "function") {
+      clearChat(pendingDeleteChatId.value);
+    }
+    pendingDeleteChatId.value = null;
+  }
+}
+
+// Helper formatting functions
 function formatTime(timestamp: number): string {
   return new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
@@ -44,14 +74,13 @@ const menuMsgId = ref<string | null>(null);
 function toggleMenu(id: string) {
   menuMsgId.value = menuMsgId.value === id ? null : id;
 }
-function doDelete(m: { id: string }, mode: "me" | "everyone") {
+function doDelete(m: ChatMessage, mode: "me" | "everyone") {
   menuMsgId.value = null;
   deleteMessage(m.id, mode);
 }
 
 // ---- header menu ----
 const headMenuOpen = ref(false);
-const confirmDelete = ref(false);
 
 function triggerClearChatModal() {
   headMenuOpen.value = false;
@@ -76,7 +105,7 @@ interface Row {
   key: string;
   kind: "date" | "msg";
   text?: string;
-  msg?: any;
+  msg?: ChatMessage;
   first?: boolean;
 }
 
@@ -84,7 +113,7 @@ const rows = computed<Row[]>(() => {
   const list = messages.value;
   const out: Row[] = [];
   let prevDate = "";
-  let prev: any = null;
+  let prev: ChatMessage | null = null;
   let msgIndex = 0;
   for (const m of list) {
     const d = new Date(m.timestamp);
@@ -106,10 +135,10 @@ const rows = computed<Row[]>(() => {
   return out;
 });
 
-// ---- auto-scroll ----
+// ---- auto-scroll with explicit DOM element assertions ----
 const stick = ref(true);
 function onScroll() {
-  const el = scroller.value;
+  const el = scroller.value as HTMLDivElement | null;
   if (!el) return;
   stick.value = el.scrollHeight - el.scrollTop - el.clientHeight < 64;
 }
@@ -117,16 +146,23 @@ const showJump = ref(false);
 watch(stick, (v) => (showJump.value = !v));
 
 function scrollNow() {
-  const el = scroller.value;
+  const el = scroller.value as HTMLDivElement | null;
   if (!el) return;
   el.scrollTop = el.scrollHeight;
+}
+
+function triggerFileInput() {
+  const el = fileInput.value as HTMLInputElement | null;
+  if (el) {
+    el.click();
+  }
 }
 
 watch(
     () => [rows.value.length, isTypingNow.value],
     async () => {
       await nextTick();
-      const el = scroller.value;
+      const el = scroller.value as HTMLDivElement | null;
       if (el && stick.value) el.scrollTop = el.scrollHeight;
     },
     { flush: "post" }
@@ -134,7 +170,7 @@ watch(
 
 watch(activeChatId, async () => {
   await nextTick();
-  const el = scroller.value;
+  const el = scroller.value as HTMLDivElement | null;
   if (el) {
     el.scrollTop = el.scrollHeight;
     stick.value = true;
@@ -268,12 +304,12 @@ function tickIcon(status: string) {
         <div v-if="r.kind === 'date'" class="date-chip">{{ r.text }}</div>
 
         <div
-            v-else
+            v-else-if="r.msg"
             class="msg-line"
-            :class="[r.msg!.senderId === me?.id ? 'mine' : 'in', r.first ? 'first' : 'folded']"
+            :class="[r.msg.senderId === me?.id ? 'mine' : 'in', r.first ? 'first' : 'folded']"
         >
           <div
-              v-if="r.msg!.senderId !== me?.id && r.first"
+              v-if="r.msg.senderId !== me?.id && r.first"
               class="mini-avatar avatar xs"
               :style="avatarStyle(activeUser)"
           >
@@ -282,52 +318,52 @@ function tickIcon(status: string) {
           </div>
 
           <div class="bubble-shell">
-            <div v-if="r.msg!.deletedForAll" class="bubble tombstone-bubble">
+            <div v-if="r.msg.deletedForAll" class="bubble tombstone-bubble">
               <span>This message was deleted</span>
             </div>
 
-            <div v-else-if="r.msg!.type === 'image'" class="bubble img-bubble">
-              <img :src="r.msg!.text" alt="Attachment" @click="previewImage(r.msg!.text)" />
+            <div v-else-if="r.msg.type === 'image'" class="bubble img-bubble">
+              <img :src="r.msg.text" alt="Attachment" @click="previewImage(r.msg.text)" />
               <span class="meta">
-                <span class="time">{{ formatTime(r.msg!.timestamp) }}</span>
-                <span v-if="r.msg!.senderId === me?.id" class="ticks" :class="r.msg!.status">
-                  <UIcon :name="tickIcon(r.msg!.status)" size="14" />
+                <span class="time">{{ formatTime(r.msg.timestamp) }}</span>
+                <span v-if="r.msg.senderId === me?.id" class="ticks" :class="r.msg.status">
+                  <UIcon :name="tickIcon(r.msg.status)" size="14" />
                 </span>
               </span>
             </div>
 
             <div v-else class="bubble text-bubble">
-              <span class="bubble-text">{{ r.msg!.text }}</span>
+              <span class="bubble-text">{{ r.msg.text }}</span>
               <span class="meta">
-                <span class="time">{{ formatTime(r.msg!.timestamp) }}</span>
-                <span v-if="r.msg!.senderId === me?.id" class="ticks" :class="r.msg!.status">
-                  <UIcon :name="tickIcon(r.msg!.status)" size="14" />
+                <span class="time">{{ formatTime(r.msg.timestamp) }}</span>
+                <span v-if="r.msg.senderId === me?.id" class="ticks" :class="r.msg.status">
+                  <UIcon :name="tickIcon(r.msg.status)" size="14" />
                 </span>
               </span>
               <button
-                  v-if="!r.msg!.deletedForAll"
+                  v-if="!r.msg.deletedForAll"
                   class="del-toggle"
-                  :class="{ open: menuMsgId === r.msg!.id }"
+                  :class="{ open: menuMsgId === r.msg.id }"
                   title="Message actions"
-                  @click.stop="toggleMenu(r.msg!.id)"
+                  @click.stop="toggleMenu(r.msg.id)"
               >
                 <UIcon name="i-lucide-chevron-down" size="15" />
               </button>
             </div>
 
             <button
-                v-if="r.msg!.type === 'image' && !r.msg!.deletedForAll"
+                v-if="r.msg.type === 'image' && !r.msg.deletedForAll"
                 class="del-toggle"
-                :class="{ open: menuMsgId === r.msg!.id }"
+                :class="{ open: menuMsgId === r.msg.id }"
                 title="Message actions"
-                @click.stop="toggleMenu(r.msg!.id)"
+                @click.stop="toggleMenu(r.msg.id)"
             >
               <UIcon name="i-lucide-chevron-down" size="14" />
             </button>
 
-            <div v-if="menuMsgId === r.msg!.id" class="msg-menu">
-              <button class="msg-menu-item" @click="doDelete(r.msg!, 'me')">Delete for me</button>
-              <button v-if="r.msg!.senderId === me?.id" class="msg-menu-item" @click="doDelete(r.msg!, 'everyone')">
+            <div v-if="menuMsgId === r.msg.id" class="msg-menu">
+              <button class="msg-menu-item" @click="doDelete(r.msg, 'me')">Delete for me</button>
+              <button v-if="r.msg.senderId === me?.id" class="msg-menu-item" @click="doDelete(r.msg, 'everyone')">
                 Delete for everyone
               </button>
             </div>
@@ -390,7 +426,7 @@ function tickIcon(status: string) {
           @focus="onCompose"
       />
 
-      <button class="icon-btn" title="Attach image" @click="fileInput?.click()">
+      <button class="icon-btn" title="Attach image" @click="triggerFileInput">
         <UIcon name="i-lucide-paperclip" size="22" />
       </button>
       <input ref="fileInput" type="file" accept="image/*" hidden @change="handleFile" />
@@ -495,7 +531,7 @@ function tickIcon(status: string) {
 }
 
 .partner-meta strong {
-  font-size: 15.5px;
+  font-size: 15px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -507,16 +543,6 @@ function tickIcon(status: string) {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.partner-meta .sub.online {
-  color: var(--brand-dark);
-}
-
-.partner-meta .sub.typing {
-  color: var(--brand-dark);
-  font-style: italic;
-  font-weight: 600;
 }
 
 .head-actions {
@@ -559,7 +585,7 @@ function tickIcon(status: string) {
   border: none;
   background: transparent;
   text-align: left;
-  font-size: 13.5px;
+  font-size: 13px;
   color: var(--ink);
   padding: 9px 12px;
   border-radius: 8px;
@@ -630,7 +656,7 @@ function tickIcon(status: string) {
   border: none;
   border-radius: 8px;
   padding: 9px 18px;
-  font-size: 13.5px;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   transition: background 0.12s ease;
@@ -697,9 +723,6 @@ function tickIcon(status: string) {
   margin-top: 12px;
 }
 
-.msg-line.mine {
-  flex-direction: row-reverse;
-}
 
 .mini-avatar {
   margin-bottom: 5px;
@@ -770,8 +793,8 @@ function tickIcon(status: string) {
   white-space: normal;
   overflow-wrap: anywhere;
   word-break: break-word;
-  font-size: 14.2px;
-  line-height: 1.42;
+  font-size: 14px;
+  line-height: 1.4;
 }
 
 .meta {
@@ -795,9 +818,6 @@ function tickIcon(status: string) {
   color: rgba(17, 27, 33, 0.55);
 }
 
-.ticks.read {
-  color: #53bdeb;
-}
 
 .del-toggle {
   position: absolute;
@@ -873,7 +893,7 @@ function tickIcon(status: string) {
   border: none;
   background: transparent;
   text-align: left;
-  font-size: 13.5px;
+  font-size: 13px;
   color: var(--ink);
   padding: 8px 12px;
   border-radius: 7px;
@@ -894,7 +914,7 @@ function tickIcon(status: string) {
   display: flex;
   align-items: center;
   font-style: italic;
-  font-size: 13.5px;
+  font-size: 13px;
   color: var(--ink-2);
   background: #f1f3f5;
   user-select: none;
@@ -972,20 +992,13 @@ function tickIcon(status: string) {
   left: 0;
   right: 0;
   text-align: center;
-  font-size: 12.5px;
+  font-size: 12px;
   color: rgba(255, 255, 255, 0.65);
   user-select: none;
 }
 
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.18s ease;
-}
 
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
-}
+
 
 /* ---- typing bubble ---- */
 .typing-bubble {
@@ -1058,15 +1071,7 @@ function tickIcon(status: string) {
   height: 20px;
 }
 
-.jump-enter-active {
-  animation: popIn 0.22s ease;
-}
-
-.jump-leave-active {
-  transition: opacity 0.15s ease, transform 0.15s ease;
-}
-
-.jump-leave-to {
+:deep(.jump-leave-to) {
   opacity: 0;
   transform: translateX(-50%) scale(0.8);
 }
@@ -1114,13 +1119,13 @@ function tickIcon(status: string) {
   transform: scale(1.12);
 }
 
-.pop-enter-active,
-.pop-leave-active {
+:deep(.pop-enter-active),
+:deep(.pop-leave-active) {
   transition: opacity 0.16s ease, transform 0.16s ease;
 }
 
-.pop-enter-from,
-.pop-leave-to {
+:deep(.pop-enter-from),
+:deep(.pop-leave-to) {
   opacity: 0;
   transform: translateY(8px) scale(0.96);
 }
@@ -1143,7 +1148,7 @@ function tickIcon(status: string) {
   background: #f0f2f5;
   border-radius: 22px;
   padding: 11px 16px;
-  font-size: 14.5px;
+  font-size: 14px;
   line-height: 1.4;
   color: var(--ink);
 }
