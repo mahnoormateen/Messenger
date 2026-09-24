@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+pnpm-lock.yaml
+yarn-lock.txt
+bun-lock.yaml
+
+# Production
+*.env*
+
+# Database
+*.sqlite3
+*.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*.8su
+
+# OS
+.DS_Store
+Thumbs.db
